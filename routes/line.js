@@ -1,601 +1,398 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
-const db = require('../database');
-const moment = require('moment');
+const { 
+  createReservation, 
+  getReservations, 
+  getMenuItems, 
+  checkInventory,
+  updateReservation,
+  deleteReservation 
+} = require('../database');
 
 const router = express.Router();
-
-// 環境変数の確認
-console.log('LINE_CHANNEL_ACCESS_TOKEN:', process.env.LINE_CHANNEL_ACCESS_TOKEN ? 'Set' : 'Not set');
-console.log('LINE_CHANNEL_SECRET:', process.env.LINE_CHANNEL_SECRET ? 'Set' : 'Not set');
 
 // LINE Bot設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-
-// 環境変数の確認
-if (!config.channelAccessToken || !config.channelSecret) {
-  console.error('LINE Bot configuration error: Missing channel access token or secret');
-}
 
 const client = new line.Client(config);
 
-// テスト用エンドポイント
-router.get('/webhook', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'LINE Bot Webhook endpoint is working',
-    timestamp: new Date().toISOString()
-  });
-});
+// 営業日チェック（平日のみ）
+function isBusinessDay(date) {
+  const day = date.getDay();
+  return day >= 1 && day <= 5; // 1=月曜日, 5=金曜日
+}
 
-// Webhook endpoint with improved error handling
-router.post('/webhook', (req, res) => {
-  // 環境変数の確認
-  if (!config.channelAccessToken || !config.channelSecret) {
-    console.error('LINE Bot configuration error: Missing environment variables');
-    return res.status(500).json({ error: 'LINE Bot configuration error' });
-  }
+// 営業時間の時間枠
+const TIME_SLOTS = [
+  '11:00', '11:30', '12:00', '12:30', 
+  '13:00', '13:30', '14:00', '14:30'
+];
 
-  // LINE signature validation
-  const signature = req.get('X-Line-Signature');
-  if (!signature) {
-    console.error('No signature provided');
-    return res.status(400).json({ error: 'No signature' });
-  }
-
-  try {
-    // Manual signature validation
-    const body = JSON.stringify(req.body);
-    const crypto = require('crypto');
-    const hash = crypto.createHmac('sha256', config.channelSecret).update(body).digest('base64');
+// 利用可能な日付を7営業日分取得
+function getAvailableDates() {
+  const dates = [];
+  const today = new Date();
+  let count = 0;
+  
+  for (let i = 1; count < 7; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
     
-    if (hash !== signature) {
-      console.error('Signature validation failed');
-      return res.status(400).json({ error: 'Invalid signature' });
+    if (isBusinessDay(date)) {
+      dates.push(date);
+      count++;
     }
-
-    // Process events
-    Promise
-      .all(req.body.events.map(handleEvent))
-      .then((result) => res.json(result))
-      .catch((err) => {
-        console.error('Webhook error:', err);
-        res.status(500).end();
-      });
-  } catch (err) {
-    console.error('Webhook processing error:', err);
-    res.status(500).json({ error: 'Internal server error' });
   }
-});
+  
+  return dates;
+}
 
-// イベントハンドラー
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return Promise.resolve(null);
-  }
-
-  const userId = event.source.userId;
-  const messageText = event.message.text;
-
-  // ユーザー情報を取得または作成
-  await getOrCreateUser(userId);
-
-  // メッセージの処理
-  if (messageText === '予約する' || messageText === '予約') {
-    return handleReservationStart(event);
-  } else if (messageText === '予約確認' || messageText === '確認') {
-    return handleReservationCheck(event);
-  } else if (messageText === '予約キャンセル' || messageText === 'キャンセル') {
-    return handleReservationCancel(event);
-  } else if (messageText === 'メニュー' || messageText === 'メニュー確認') {
-    return handleMenuRequest(event);
-  } else if (messageText === '営業時間' || messageText === '営業時間確認') {
-    return handleBusinessHours(event);
-  } else if (messageText.startsWith('予約_')) {
-    return handleReservationStep(event);
+// 日付フォーマット関数
+function formatDate(date) {
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  const weekday = weekdays[date.getDay()];
+  
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  
+  if (date.toDateString() === tomorrow.toDateString()) {
+    return `明日 ${month}/${day}`;
   } else {
-    return handleDefaultMessage(event);
+    return `${month}/${day}(${weekday})`;
   }
 }
 
-// ユーザー情報の取得または作成
-async function getOrCreateUser(userId) {
-  return new Promise((resolve, reject) => {
-    const sqliteDb = db.getDb();
-    sqliteDb.get('SELECT * FROM users WHERE line_user_id = ?', [userId], (err, row) => {
-      if (err) {
-        reject(err);
-      } else if (!row) {
-        sqliteDb.run('INSERT INTO users (line_user_id) VALUES (?)', [userId], (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      } else {
-        resolve();
-      }
-    });
-  });
-}
-
-// 予約開始の処理
+// 予約開始時の応答
 async function handleReservationStart(event) {
-  const quickReply = {
-    items: [
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '今日',
-          text: '予約_今日'
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '明日',
-          text: '予約_明日'
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '明後日',
-          text: '予約_明後日'
-        }
-      }
-    ]
-  };
+  const availableDates = getAvailableDates();
+  
+  const quickReplyItems = availableDates.map(date => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: formatDate(date),
+      data: `予約_日付_${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    }
+  }));
 
-  const replyToken = event.replyToken;
   const message = {
     type: 'text',
-    text: 'ご予約ありがとうございます！\n\nご希望の日付をお選びください：\n\n営業時間：平日11:00-14:30\n（土日祝は休業）',
-    quickReply: quickReply
+    text: '🍙 まごころおにぎり予約システム\n\n📅 ご希望の日付をお選びください：\n\n⏰ 営業時間：平日11:00-14:30\n🕐 30分刻みで受付中\n📦 各時間枠最大10個まで\n\n※土日祝は休業日です',
+    quickReply: {
+      items: quickReplyItems
+    }
   };
 
-  return client.replyMessage(replyToken, message);
+  return client.replyMessage(event.replyToken, message);
 }
 
-// 予約ステップの処理
-async function handleReservationStep(event) {
-  const messageText = event.message.text;
-  const userId = event.source.userId;
-
-  if (messageText === '予約_今日' || messageText === '予約_明日' || messageText === '予約_明後日') {
-    return handleDateSelection(event, messageText);
-  } else if (messageText.startsWith('予約_時間_')) {
-    return handleTimeSelection(event, messageText);
-  } else if (messageText.startsWith('予約_メニュー_')) {
-    return handleMenuSelection(event, messageText);
-  } else if (messageText.startsWith('予約_確認_')) {
-    return handleReservationConfirmation(event, messageText);
-  }
-}
-
-// 日付選択の処理
-async function handleDateSelection(event, messageText) {
-  let selectedDate;
-  const today = moment();
-  
-  if (messageText === '予約_今日') {
-    selectedDate = today.clone();
-  } else if (messageText === '予約_明日') {
-    selectedDate = today.clone().add(1, 'day');
-  } else if (messageText === '予約_明後日') {
-    selectedDate = today.clone().add(2, 'days');
-  }
-
-  // 土日祝のチェック
-  if (selectedDate.day() === 0 || selectedDate.day() === 6) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '申し訳ございません。土日祝は休業日です。\n平日をお選びください。'
-    });
-  }
-
-  // 時間選択のクイックリプライ
-  const quickReply = {
-    items: [
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '11:00',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_11:00`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '11:30',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_11:30`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '12:00',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_12:00`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '12:30',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_12:30`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '13:00',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_13:00`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '13:30',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_13:30`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '14:00',
-          text: `予約_時間_${selectedDate.format('YYYY-MM-DD')}_14:00`
-        }
-      }
-    ]
-  };
-
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: `${selectedDate.format('MM月DD日')}をお選びいただきました。\n\nご希望の時間をお選びください：`,
-    quickReply: quickReply
-  });
-}
-
-// 時間選択の処理
-async function handleTimeSelection(event, messageText) {
-  const parts = messageText.split('_');
-  const date = parts[2];
-  const time = parts[3];
-
-  // メニュー選択のクイックリプライ
-  const menuItems = await getMenuItems();
-  const quickReply = {
-    items: menuItems.map(item => ({
-      type: 'action',
-      action: {
-        type: 'message',
-        label: `${item.name}(${item.price}円)`,
-        text: `予約_メニュー_${date}_${time}_${item.id}`
-      }
-    }))
-  };
-
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: `${moment(date).format('MM月DD日')} ${time}をお選びいただきました。\n\nご希望のメニューをお選びください：`,
-    quickReply: quickReply
-  });
-}
-
-// メニュー選択の処理
-async function handleMenuSelection(event, messageText) {
-  const parts = messageText.split('_');
-  const date = parts[2];
-  const time = parts[3];
-  const menuId = parts[4];
-
-  const menuItem = await getMenuItemById(menuId);
-  
-  const quickReply = {
-    items: [
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '予約確定',
-          text: `予約_確認_${date}_${time}_${menuId}`
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: 'やり直し',
-          text: '予約する'
-        }
-      }
-    ]
-  };
-
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: `予約内容をご確認ください：\n\n日時：${moment(date).format('MM月DD日')} ${time}\nメニュー：${menuItem.name}(${menuItem.price}円)\n\n予約を確定しますか？`,
-    quickReply: quickReply
-  });
-}
-
-// 予約確定の処理
-async function handleReservationConfirmation(event, messageText) {
-  const parts = messageText.split('_');
-  const date = parts[2];
-  const time = parts[3];
-  const menuId = parts[4];
-  const userId = event.source.userId;
-
+// 時間選択の応答（在庫数表示付き）
+async function handleTimeSelection(event, selectedDate) {
   try {
-    // 予約をデータベースに保存
-    const reservationId = await createReservation(userId, date, time, menuId);
-    const menuItem = await getMenuItemById(menuId);
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `予約が完了しました！\n\n予約番号：${reservationId}\n日時：${moment(date).format('MM月DD日')} ${time}\nメニュー：${menuItem.name}(${menuItem.price}円)\n\n【店舗情報】\n合同会社こころ\n〒347-0105 埼玉県加須市久下1-1-15\n\nお時間になりましたら店舗にお越しください。\n\nキャンセルの場合は「予約キャンセル」とメッセージしてください。`
-    });
-  } catch (error) {
-    console.error('予約作成エラー:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '申し訳ございません。予約の作成に失敗しました。もう一度お試しください。'
-    });
-  }
-}
-
-// 予約確認の処理
-async function handleReservationCheck(event) {
-  const userId = event.source.userId;
-  
-  try {
-    const reservations = await getUserReservations(userId);
+    const quickReplyItems = [];
     
-    if (reservations.length === 0) {
-      return client.replyMessage(event.replyToken, {
+    // 各時間枠の在庫チェック
+    for (const timeSlot of TIME_SLOTS) {
+      const inventory = await checkInventory(selectedDate, timeSlot);
+      const availableCount = inventory.available_count;
+      
+      if (availableCount > 0) {
+        quickReplyItems.push({
+          type: 'action',
+          action: {
+            type: 'postback',
+            label: `${timeSlot} (残${availableCount}個)`,
+            data: `予約_時間_${selectedDate}_${timeSlot}`
+          }
+        });
+      }
+    }
+
+    if (quickReplyItems.length === 0) {
+      const message = {
         type: 'text',
-        text: '現在、予約はございません。'
+        text: '申し訳ございません。\n選択された日付は全ての時間枠が満席となっております。\n\n別の日付をお選びください。'
+      };
+      return client.replyMessage(event.replyToken, message);
+    }
+
+    const message = {
+      type: 'text',
+      text: `📅 ${selectedDate}\n\n🕐 ご希望の時間をお選びください：\n\n💡 ご予約は30分ごとの時間枠ごとに最大10個までご指定いただけます`,
+      quickReply: {
+        items: quickReplyItems
+      }
+    };
+
+    return client.replyMessage(event.replyToken, message);
+  } catch (error) {
+    console.error('時間選択エラー:', error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。'
+    });
+  }
+}
+
+// おにぎり種類選択（カルーセル表示）
+async function showOnigiriSelection(event, selectedDate, selectedTime) {
+  try {
+    const inventory = await checkInventory(selectedDate, selectedTime);
+    const availableCount = inventory.available_count;
+    
+    if (availableCount <= 0) {
+      const message = {
+        type: 'text',
+        text: '申し訳ございません。\n選択された時間枠は満席となっております。\n\n別の時間をお選びください。'
+      };
+      return client.replyMessage(event.replyToken, message);
+    }
+
+    const menuItems = await getMenuItems();
+    const columns = menuItems.map(item => ({
+      thumbnailImageUrl: `https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop&overlay=text&text=${encodeURIComponent(item.name)}`,
+      title: item.name,
+      text: `${item.description}\n¥${item.price}`,
+      actions: [
+        {
+          type: 'postback',
+          label: '選択する',
+          data: `予約_おにぎり_${selectedDate}_${selectedTime}_${item.name}`
+        }
+      ]
+    }));
+
+    const message = {
+      type: 'template',
+      altText: 'おにぎりを選択してください',
+      template: {
+        type: 'carousel',
+        columns: columns
+      }
+    };
+
+    return client.replyMessage(event.replyToken, message);
+  } catch (error) {
+    console.error('おにぎり選択エラー:', error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'エラーが発生しました。もう一度お試しください。'
+    });
+  }
+}
+
+// 数量選択の応答
+async function handleQuantitySelection(event, selectedDate, selectedTime, selectedOnigiri) {
+  try {
+    const inventory = await checkInventory(selectedDate, selectedTime);
+    const availableCount = inventory.available_count;
+    
+    if (availableCount <= 0) {
+      const message = {
+        type: 'text',
+        text: '申し訳ございません。\n選択された時間枠は満席となっております。\n\n別の時間をお選びください。'
+      };
+      return client.replyMessage(event.replyToken, message);
+    }
+
+    const maxQuantity = Math.min(availableCount, 5); // 最大5個まで
+    const quickReplyItems = [];
+    
+    for (let i = 1; i <= maxQuantity; i++) {
+      quickReplyItems.push({
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: `${i}個`,
+          data: `予約_数量_${selectedDate}_${selectedTime}_${selectedOnigiri}_${i}`
+        }
       });
     }
 
-    let message = '現在の予約一覧：\n\n';
-    reservations.forEach(reservation => {
-      message += `予約番号：${reservation.id}\n`;
-      message += `日時：${moment(reservation.reservation_date).format('MM月DD日')} ${reservation.reservation_time}\n`;
-      message += `状態：${reservation.status}\n\n`;
-    });
+    const message = {
+      type: 'text',
+      text: `🍙 ${selectedOnigiri}\n📅 ${selectedDate} ${selectedTime}\n\n数量をお選びください：\n（残り${availableCount}個）`,
+      quickReply: {
+        items: quickReplyItems
+      }
+    };
 
+    return client.replyMessage(event.replyToken, message);
+  } catch (error) {
+    console.error('数量選択エラー:', error);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: message
+      text: 'エラーが発生しました。もう一度お試しください。'
     });
+  }
+}
+
+// 予約確定の応答
+async function handleReservationConfirmation(event, selectedDate, selectedTime, selectedOnigiri, quantity) {
+  try {
+    const reservation = await createReservation(
+      event.source.userId,
+      selectedDate,
+      selectedTime,
+      selectedOnigiri,
+      parseInt(quantity)
+    );
+
+    const menuItems = await getMenuItems();
+    const selectedItem = menuItems.find(item => item.name === selectedOnigiri);
+    const totalPrice = selectedItem ? selectedItem.price * parseInt(quantity) : 0;
+
+    const message = {
+      type: 'text',
+      text: `✅ 予約が確定しました！\n\n【予約詳細】\n📅 日時：${selectedDate} ${selectedTime}\n🍙 おにぎり：${selectedOnigiri}\n🔢 数量：${quantity}個\n💰 合計金額：¥${totalPrice}\n\n🏪 当日のご来店をお待ちしております！\n\n※変更・キャンセルは前日までにご連絡ください。\n※営業時間：平日11:00-14:30`
+    };
+
+    return client.replyMessage(event.replyToken, message);
+  } catch (error) {
+    console.error('予約確定エラー:', error);
+    const errorMessage = {
+      type: 'text',
+      text: `❌ 予約エラー\n\n${error.message}\n\n別の時間枠をお選びください。`
+    };
+    return client.replyMessage(event.replyToken, errorMessage);
+  }
+}
+
+// 予約確認の応答
+async function handleReservationCheck(event) {
+  try {
+    const reservations = await getReservations(event.source.userId);
+    
+    if (reservations.length === 0) {
+      const message = {
+        type: 'text',
+        text: '現在、予約はございません。\n\n新しい予約をするには「予約」とメッセージしてください。'
+      };
+      return client.replyMessage(event.replyToken, message);
+    }
+
+    let responseText = '📋 あなたの予約一覧：\n\n';
+    let totalPrice = 0;
+    
+    reservations.forEach((reservation, index) => {
+      const itemPrice = reservation.price * reservation.quantity;
+      totalPrice += itemPrice;
+      
+      responseText += `${index + 1}. 📅 ${reservation.reservation_date} ${reservation.time_slot}\n`;
+      responseText += `   🍙 ${reservation.onigiri_type} × ${reservation.quantity}個\n`;
+      responseText += `   💰 ¥${itemPrice}\n\n`;
+    });
+    
+    responseText += `合計金額：¥${totalPrice}\n\n`;
+    responseText += '※変更・キャンセルは前日までにご連絡ください。';
+
+    const message = {
+      type: 'text',
+      text: responseText
+    };
+
+    return client.replyMessage(event.replyToken, message);
   } catch (error) {
     console.error('予約確認エラー:', error);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '予約確認に失敗しました。もう一度お試しください。'
+      text: 'エラーが発生しました。もう一度お試しください。'
     });
   }
 }
 
-// 予約キャンセルの処理
-async function handleReservationCancel(event) {
-  const userId = event.source.userId;
-  
-  try {
-    const reservations = await getUserActiveReservations(userId);
-    
-    if (reservations.length === 0) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'キャンセル可能な予約はございません。'
-      });
-    }
+// メッセージイベントの処理
+async function handleMessage(event) {
+  const message = event.message.text;
 
-    const quickReply = {
-      items: reservations.map(reservation => ({
-        type: 'action',
-        action: {
-          type: 'message',
-          label: `予約${reservation.id}`,
-          text: `キャンセル_${reservation.id}`
-        }
-      }))
+  if (message === '予約') {
+    return handleReservationStart(event);
+  } else if (message === '確認') {
+    return handleReservationCheck(event);
+  } else if (message === 'メニュー') {
+    return showOnigiriSelection(event, null, null);
+  } else if (message === 'ヘルプ') {
+    const helpMessage = {
+      type: 'text',
+      text: '🍙 まごころおにぎり予約システム\n\n【使用方法】\n・「予約」→新しい予約\n・「確認」→予約確認\n・「メニュー」→メニュー表示\n・「ヘルプ」→この説明\n\n【営業時間】\n平日 11:00-14:30\n（土日祝は休業）\n\n【予約枠】\n30分刻み、各枠最大10個まで'
     };
-
-    let message = 'キャンセルする予約をお選びください：\n\n';
-    reservations.forEach(reservation => {
-      message += `予約番号：${reservation.id}\n`;
-      message += `日時：${moment(reservation.reservation_date).format('MM月DD日')} ${reservation.reservation_time}\n\n`;
-    });
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: message,
-      quickReply: quickReply
-    });
-  } catch (error) {
-    console.error('予約キャンセル処理エラー:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '予約キャンセル処理に失敗しました。もう一度お試しください。'
-    });
+    return client.replyMessage(event.replyToken, helpMessage);
   }
-}
-
-// メニュー表示の処理
-async function handleMenuRequest(event) {
-  try {
-    const menuItems = await getMenuItems();
-    
-    let message = '【まごころ おにぎり屋 メニュー】\n\n';
-    menuItems.forEach(item => {
-      message += `${item.name}：${item.price}円\n`;
-    });
-    message += '\n予約をご希望の場合は「予約する」とメッセージしてください。';
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: message
-    });
-  } catch (error) {
-    console.error('メニュー表示エラー:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'メニュー表示に失敗しました。もう一度お試しください。'
-    });
-  }
-}
-
-// 営業時間表示の処理
-async function handleBusinessHours(event) {
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: '【営業時間】\n平日：11:00-14:30\n土日祝：休業\n\n【店舗情報】\n〒347-0105 埼玉県加須市久下1-1-15\n\n予約をご希望の場合は「予約する」とメッセージしてください。'
-  });
-}
-
-// デフォルトメッセージの処理
-async function handleDefaultMessage(event) {
-  const quickReply = {
-    items: [
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '予約する',
-          text: '予約する'
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '予約確認',
-          text: '予約確認'
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: 'メニュー',
-          text: 'メニュー'
-        }
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '営業時間',
-          text: '営業時間'
-        }
-      }
-    ]
-  };
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: 'いらっしゃいませ！\n「まごころ」おにぎり屋です。\n\n下記からお選びください：',
-    quickReply: quickReply
+    text: '🍙 まごころおにぎり予約システム\n\n【コマンド】\n・「予約」→新しい予約\n・「確認」→予約確認\n・「メニュー」→メニュー表示\n・「ヘルプ」→使用方法'
   });
 }
 
-// データベースヘルパー関数
-function getMenuItems() {
-  return new Promise((resolve, reject) => {
-    const sqliteDb = db.getDb();
-    sqliteDb.all('SELECT * FROM menu_items WHERE is_available = 1', [], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
+// ポストバックイベントの処理
+async function handlePostback(event) {
+  const data = event.postback.data;
+
+  if (data.startsWith('予約_日付_')) {
+    const selectedDate = data.replace('予約_日付_', '');
+    return handleTimeSelection(event, selectedDate);
+  }
+
+  if (data.startsWith('予約_時間_')) {
+    const parts = data.replace('予約_時間_', '').split('_');
+    const selectedDate = parts[0];
+    const selectedTime = parts[1];
+    return showOnigiriSelection(event, selectedDate, selectedTime);
+  }
+
+  if (data.startsWith('予約_おにぎり_')) {
+    const parts = data.replace('予約_おにぎり_', '').split('_');
+    const selectedDate = parts[0];
+    const selectedTime = parts[1];
+    const selectedOnigiri = parts[2];
+    return handleQuantitySelection(event, selectedDate, selectedTime, selectedOnigiri);
+  }
+
+  if (data.startsWith('予約_数量_')) {
+    const parts = data.replace('予約_数量_', '').split('_');
+    const selectedDate = parts[0];
+    const selectedTime = parts[1];
+    const selectedOnigiri = parts[2];
+    const quantity = parts[3];
+    return handleReservationConfirmation(event, selectedDate, selectedTime, selectedOnigiri, quantity);
+  }
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: 'エラーが発生しました。もう一度お試しください。'
+  });
+}
+
+// メインのwebhookハンドラー
+router.post('/webhook', line.middleware(config), (req, res) => {
+  Promise.all(req.body.events.map(handleEvent))
+    .then(() => res.json({ status: 'success' }))
+    .catch((error) => {
+      console.error('Webhook Error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     });
-  });
-}
+});
 
-function getMenuItemById(id) {
-  return new Promise((resolve, reject) => {
-    const sqliteDb = db.getDb();
-    sqliteDb.get('SELECT * FROM menu_items WHERE id = ?', [id], (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
-}
+// イベント処理
+async function handleEvent(event) {
+  console.log('Event received:', event);
+  
+  if (event.type === 'message' && event.message.type === 'text') {
+    return handleMessage(event);
+  }
 
-async function createReservation(userId, date, time, menuId) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const sqliteDb = db.getDb();
-      const menuItem = await getMenuItemById(menuId);
-      
-      if (!menuItem) {
-        reject(new Error('メニューが見つかりません'));
-        return;
-      }
-      
-      // シンプルな予約作成 - 既存のデータベース構造に合わせてquantityフィールドを含める
-      sqliteDb.run(
-        'INSERT INTO reservations (user_id, reservation_date, reservation_time, quantity, status) VALUES ((SELECT id FROM users WHERE line_user_id = ?), ?, ?, ?, ?)',
-        [userId, date, time, 1, 'confirmed'],
-        function(err) {
-          if (err) {
-            console.error('予約作成エラー:', err);
-            reject(err);
-          } else {
-            console.log('予約作成成功:', this.lastID);
-            resolve(this.lastID);
-          }
-        }
-      );
-    } catch (error) {
-      console.error('予約作成エラー:', error);
-      reject(error);
-    }
-  });
-}
+  if (event.type === 'postback') {
+    return handlePostback(event);
+  }
 
-function getUserReservations(userId) {
-  return new Promise((resolve, reject) => {
-    const sqliteDb = db.getDb();
-    sqliteDb.all(`
-      SELECT r.* 
-      FROM reservations r 
-      WHERE r.user_id = (SELECT id FROM users WHERE line_user_id = ?) 
-      ORDER BY r.reservation_date DESC, r.reservation_time DESC
-    `, [userId], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
-
-function getUserActiveReservations(userId) {
-  return new Promise((resolve, reject) => {
-    const sqliteDb = db.getDb();
-    sqliteDb.all(`
-      SELECT r.* 
-      FROM reservations r 
-      WHERE r.user_id = (SELECT id FROM users WHERE line_user_id = ?) 
-      AND r.status = 'confirmed' 
-      AND datetime(r.reservation_date || ' ' || r.reservation_time) > datetime('now', 'localtime')
-      ORDER BY r.reservation_date, r.reservation_time
-    `, [userId], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+  return Promise.resolve(null);
 }
 
 module.exports = router; 
