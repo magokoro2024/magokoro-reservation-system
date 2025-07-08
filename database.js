@@ -43,7 +43,7 @@ class Database {
           user_id INTEGER NOT NULL,
           reservation_date TEXT NOT NULL,
           reservation_time TEXT NOT NULL,
-          quantity INTEGER NOT NULL,
+          quantity INTEGER NOT NULL DEFAULT 1,
           menu_items TEXT,
           total_price INTEGER DEFAULT 0,
           status TEXT DEFAULT 'pending',

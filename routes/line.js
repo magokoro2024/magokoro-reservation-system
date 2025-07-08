@@ -5,11 +5,20 @@ const moment = require('moment');
 
 const router = express.Router();
 
+// 環境変数の確認
+console.log('LINE_CHANNEL_ACCESS_TOKEN:', process.env.LINE_CHANNEL_ACCESS_TOKEN ? 'Set' : 'Not set');
+console.log('LINE_CHANNEL_SECRET:', process.env.LINE_CHANNEL_SECRET ? 'Set' : 'Not set');
+
 // LINE Bot設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
+
+// 環境変数の確認
+if (!config.channelAccessToken || !config.channelSecret) {
+  console.error('LINE Bot configuration error: Missing channel access token or secret');
+}
 
 const client = new line.Client(config);
 
@@ -22,15 +31,44 @@ router.get('/webhook', (req, res) => {
   });
 });
 
-// Webhook endpoint
-router.post('/webhook', line.middleware(config), (req, res) => {
-  Promise
-    .all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook error:', err);
-      res.status(500).end();
-    });
+// Webhook endpoint with improved error handling
+router.post('/webhook', (req, res) => {
+  // 環境変数の確認
+  if (!config.channelAccessToken || !config.channelSecret) {
+    console.error('LINE Bot configuration error: Missing environment variables');
+    return res.status(500).json({ error: 'LINE Bot configuration error' });
+  }
+
+  // LINE signature validation
+  const signature = req.get('X-Line-Signature');
+  if (!signature) {
+    console.error('No signature provided');
+    return res.status(400).json({ error: 'No signature' });
+  }
+
+  try {
+    // Manual signature validation
+    const body = JSON.stringify(req.body);
+    const crypto = require('crypto');
+    const hash = crypto.createHmac('sha256', config.channelSecret).update(body).digest('base64');
+    
+    if (hash !== signature) {
+      console.error('Signature validation failed');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    // Process events
+    Promise
+      .all(req.body.events.map(handleEvent))
+      .then((result) => res.json(result))
+      .catch((err) => {
+        console.error('Webhook error:', err);
+        res.status(500).end();
+      });
+  } catch (err) {
+    console.error('Webhook processing error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // イベントハンドラー
@@ -307,7 +345,7 @@ async function handleReservationConfirmation(event, messageText) {
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `予約が完了しました！\n\n予約番号：${reservationId}\n日時：${moment(date).format('MM月DD日')} ${time}\nメニュー：${menuItem.name}(${menuItem.price}円)\n\nお時間になりましたら店舗にお越しください。\n\nキャンセルの場合は「予約キャンセル」とメッセージしてください。`
+      text: `予約が完了しました！\n\n予約番号：${reservationId}\n日時：${moment(date).format('MM月DD日')} ${time}\nメニュー：${menuItem.name}(${menuItem.price}円)\n\n【店舗情報】\n合同会社こころ\n〒347-0105 埼玉県加須市久下1-1-15\n\nお時間になりましたら店舗にお越しください。\n\nキャンセルの場合は「予約キャンセル」とメッセージしてください。`
     });
   } catch (error) {
     console.error('予約作成エラー:', error);
@@ -336,7 +374,6 @@ async function handleReservationCheck(event) {
     reservations.forEach(reservation => {
       message += `予約番号：${reservation.id}\n`;
       message += `日時：${moment(reservation.reservation_date).format('MM月DD日')} ${reservation.reservation_time}\n`;
-      message += `メニュー：${reservation.menu_name}(${reservation.menu_price}円)\n`;
       message += `状態：${reservation.status}\n\n`;
     });
 
@@ -381,8 +418,7 @@ async function handleReservationCancel(event) {
     let message = 'キャンセルする予約をお選びください：\n\n';
     reservations.forEach(reservation => {
       message += `予約番号：${reservation.id}\n`;
-      message += `日時：${moment(reservation.reservation_date).format('MM月DD日')} ${reservation.reservation_time}\n`;
-      message += `メニュー：${reservation.menu_name}\n\n`;
+      message += `日時：${moment(reservation.reservation_date).format('MM月DD日')} ${reservation.reservation_time}\n\n`;
     });
 
     return client.replyMessage(event.replyToken, {
@@ -498,17 +534,35 @@ function getMenuItemById(id) {
   });
 }
 
-function createReservation(userId, date, time, menuId) {
-  return new Promise((resolve, reject) => {
-    const sqliteDb = db.getDb();
-    sqliteDb.run(
-      'INSERT INTO reservations (user_id, reservation_date, reservation_time, menu_items, status) VALUES ((SELECT id FROM users WHERE line_user_id = ?), ?, ?, ?, ?)',
-      [userId, date, time, menuId, 'confirmed'],
-      function(err) {
-        if (err) reject(err);
-        else resolve(this.lastID);
+async function createReservation(userId, date, time, menuId) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const sqliteDb = db.getDb();
+      const menuItem = await getMenuItemById(menuId);
+      
+      if (!menuItem) {
+        reject(new Error('メニューが見つかりません'));
+        return;
       }
-    );
+      
+      // シンプルな予約作成 - 既存のデータベース構造に合わせてquantityフィールドを含める
+      sqliteDb.run(
+        'INSERT INTO reservations (user_id, reservation_date, reservation_time, quantity, status) VALUES ((SELECT id FROM users WHERE line_user_id = ?), ?, ?, ?, ?)',
+        [userId, date, time, 1, 'confirmed'],
+        function(err) {
+          if (err) {
+            console.error('予約作成エラー:', err);
+            reject(err);
+          } else {
+            console.log('予約作成成功:', this.lastID);
+            resolve(this.lastID);
+          }
+        }
+      );
+    } catch (error) {
+      console.error('予約作成エラー:', error);
+      reject(error);
+    }
   });
 }
 
@@ -516,9 +570,8 @@ function getUserReservations(userId) {
   return new Promise((resolve, reject) => {
     const sqliteDb = db.getDb();
     sqliteDb.all(`
-      SELECT r.*, m.name as menu_name, m.price as menu_price 
+      SELECT r.* 
       FROM reservations r 
-      JOIN menu_items m ON r.menu_items = m.id 
       WHERE r.user_id = (SELECT id FROM users WHERE line_user_id = ?) 
       ORDER BY r.reservation_date DESC, r.reservation_time DESC
     `, [userId], (err, rows) => {
@@ -532,9 +585,8 @@ function getUserActiveReservations(userId) {
   return new Promise((resolve, reject) => {
     const sqliteDb = db.getDb();
     sqliteDb.all(`
-      SELECT r.*, m.name as menu_name, m.price as menu_price 
+      SELECT r.* 
       FROM reservations r 
-      JOIN menu_items m ON r.menu_items = m.id 
       WHERE r.user_id = (SELECT id FROM users WHERE line_user_id = ?) 
       AND r.status = 'confirmed' 
       AND datetime(r.reservation_date || ' ' || r.reservation_time) > datetime('now', 'localtime')
