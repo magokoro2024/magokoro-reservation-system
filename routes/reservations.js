@@ -16,14 +16,15 @@ router.get('/', (req, res) => {
       r.updated_at,
       m.name as menu_name,
       m.price as menu_price,
-      u.line_id as user_line_id
+      u.line_user_id as user_line_id
     FROM reservations r
-    LEFT JOIN menu_items m ON r.menu_id = m.id
+    LEFT JOIN menu_items m ON r.menu_items = m.id
     LEFT JOIN users u ON r.user_id = u.id
     ORDER BY r.reservation_date DESC, r.reservation_time DESC
   `;
 
-  db.all(query, [], (err, rows) => {
+  const sqliteDb = db.getDb();
+  sqliteDb.all(query, [], (err, rows) => {
     if (err) {
       console.error('予約一覧取得エラー:', err);
       return res.status(500).json({ error: '予約一覧の取得に失敗しました' });
@@ -46,14 +47,15 @@ router.get('/:id', (req, res) => {
       r.updated_at,
       m.name as menu_name,
       m.price as menu_price,
-      u.line_id as user_line_id
+      u.line_user_id as user_line_id
     FROM reservations r
-    LEFT JOIN menu_items m ON r.menu_id = m.id
+    LEFT JOIN menu_items m ON r.menu_items = m.id
     LEFT JOIN users u ON r.user_id = u.id
     WHERE r.id = ?
   `;
 
-  db.get(query, [id], (err, row) => {
+  const sqliteDb = db.getDb();
+  sqliteDb.get(query, [id], (err, row) => {
     if (err) {
       console.error('予約詳細取得エラー:', err);
       return res.status(500).json({ error: '予約詳細の取得に失敗しました' });
