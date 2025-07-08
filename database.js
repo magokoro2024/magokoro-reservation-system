@@ -60,6 +60,7 @@ class Database {
           price INTEGER NOT NULL,
           description TEXT,
           category TEXT,
+          image_url TEXT,
           is_available BOOLEAN DEFAULT 1,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`,
@@ -110,13 +111,13 @@ class Database {
     return new Promise((resolve, reject) => {
       // メニューの初期データ
       const menuItems = [
-        ['塩', 90, 'シンプルな塩おにぎり', 'regular'],
-        ['ツナマヨ', 100, '人気のツナマヨおにぎり', 'regular'],
-        ['とりそぼろ', 110, '手作りとりそぼろおにぎり', 'regular'],
-        ['こんぶ', 110, '北海道産昆布使用', 'regular'],
-        ['鮭', 120, '新鮮な鮭を使用したおにぎり', 'regular'],
-        ['たらこ', 130, '九州産たらこ使用', 'regular'],
-        ['高菜', 130, '九州産高菜使用', 'regular']
+        ['塩', 90, 'シンプルな塩おにぎり', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop'],
+        ['ツナマヨ', 100, '人気のツナマヨおにぎり', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop'],
+        ['とりそぼろ', 110, '手作りとりそぼろおにぎり', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop'],
+        ['こんぶ', 110, '北海道産昆布使用', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop'],
+        ['鮭', 120, '新鮮な鮭を使用したおにぎり', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop'],
+        ['たらこ', 130, '九州産たらこ使用', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop'],
+        ['高菜', 130, '九州産高菜使用', 'regular', 'https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&h=200&fit=crop']
       ];
 
       // 営業時間の初期データ（月曜日=1, 日曜日=0）
@@ -139,7 +140,7 @@ class Database {
       // メニューアイテムの挿入
       menuItems.forEach(item => {
         this.db.run(
-          `INSERT OR IGNORE INTO menu_items (name, price, description, category) VALUES (?, ?, ?, ?)`,
+          `INSERT OR IGNORE INTO menu_items (name, price, description, category, image_url) VALUES (?, ?, ?, ?, ?)`,
           item,
           (err) => {
             if (err) {
