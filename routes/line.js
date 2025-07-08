@@ -13,6 +13,15 @@ const config = {
 
 const client = new line.Client(config);
 
+// テスト用エンドポイント
+router.get('/webhook', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'LINE Bot Webhook endpoint is working',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Webhook endpoint
 router.post('/webhook', line.middleware(config), (req, res) => {
   Promise
