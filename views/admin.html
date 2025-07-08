@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理画面 - まごころおにぎり屋</title>
+    <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>まごころおにぎり屋 管理画面</h1>
+            <div class="admin-nav">
+                <button class="nav-btn active" onclick="showTab('dashboard')">ダッシュボード</button>
+                <button class="nav-btn" onclick="showTab('reservations')">予約管理</button>
+                <button class="nav-btn" onclick="showTab('menu')">メニュー管理</button>
+                <button class="nav-btn" onclick="showTab('settings')">設定</button>
+            </div>
+        </header>
+
+        <main class="admin-main">
+            <!-- ダッシュボード -->
+            <div id="dashboard" class="tab-content active">
+                <h2>ダッシュボード</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>今日の予約</h3>
+                        <p class="stat-number" id="todayReservations">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>今週の予約</h3>
+                        <p class="stat-number" id="weekReservations">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>今月の予約</h3>
+                        <p class="stat-number" id="monthReservations">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>総予約数</h3>
+                        <p class="stat-number" id="totalReservations">0</p>
+                    </div>
+                </div>
+                
+                <div class="charts-container">
+                    <div class="chart-card">
+                        <h3>メニュー別予約数</h3>
+                        <div id="menuChart" class="chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>時間帯別予約数</h3>
+                        <div id="timeChart" class="chart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 予約管理 -->
+            <div id="reservations" class="tab-content">
+                <h2>予約管理</h2>
+                <div class="reservation-controls">
+                    <button class="btn btn-primary" onclick="refreshReservations()">更新</button>
+                    <select id="statusFilter" onchange="filterReservations()">
+                        <option value="">すべて</option>
+                        <option value="confirmed">確定</option>
+                        <option value="cancelled">キャンセル</option>
+                    </select>
+                </div>
+                <div class="reservation-table">
+                    <table id="reservationTable">
+                        <thead>
+                            <tr>
+                                <th>予約ID</th>
+                                <th>日時</th>
+                                <th>メニュー</th>
+                                <th>金額</th>
+                                <th>状態</th>
+                                <th>作成日時</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reservationTableBody">
+                            <!-- 予約データが動的に挿入されます -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- メニュー管理 -->
+            <div id="menu" class="tab-content">
+                <h2>メニュー管理</h2>
+                <div class="menu-controls">
+                    <button class="btn btn-primary" onclick="showAddMenuForm()">新規メニュー追加</button>
+                </div>
+                <div class="menu-table">
+                    <table id="menuTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>メニュー名</th>
+                                <th>価格</th>
+                                <th>利用可能</th>
+                                <th>作成日時</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="menuTableBody">
+                            <!-- メニューデータが動的に挿入されます -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 設定 -->
+            <div id="settings" class="tab-content">
+                <h2>設定</h2>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="storeName">店舗名</label>
+                        <input type="text" id="storeName" value="まごころおにぎり屋">
+                    </div>
+                    <div class="form-group">
+                        <label for="storeAddress">住所</label>
+                        <input type="text" id="storeAddress" value="〒347-0105 埼玉県加須市久下1-1-15">
+                    </div>
+                    <div class="form-group">
+                        <label for="storePhone">電話番号</label>
+                        <input type="tel" id="storePhone">
+                    </div>
+                    <div class="form-group">
+                        <label for="storeEmail">メールアドレス</label>
+                        <input type="email" id="storeEmail" value="magokoro2024.4@gmail.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="businessHours">営業時間</label>
+                        <textarea id="businessHours" rows="3">平日：11:00-14:30
+土日祝：休業</textarea>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="saveSettings()">設定を保存</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- モーダル: メニュー追加/編集 -->
+    <div id="menuModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeMenuModal()">&times;</span>
+            <h3 id="menuModalTitle">メニュー追加</h3>
+            <form id="menuForm">
+                <div class="form-group">
+                    <label for="menuName">メニュー名</label>
+                    <input type="text" id="menuName" required>
+                </div>
+                <div class="form-group">
+                    <label for="menuPrice">価格</label>
+                    <input type="number" id="menuPrice" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label for="menuAvailable">利用可能</label>
+                    <select id="menuAvailable">
+                        <option value="1">有効</option>
+                        <option value="0">無効</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeMenuModal()">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- モーダル: 予約詳細 -->
+    <div id="reservationModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeReservationModal()">&times;</span>
+            <h3>予約詳細</h3>
+            <div id="reservationDetails">
+                <!-- 予約詳細が動的に挿入されます -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/admin.js"></script>
+</body>
+</html> 
