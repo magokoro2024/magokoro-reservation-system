@@ -66,11 +66,12 @@ async function handleEvent(event) {
 // ユーザー情報の取得または作成
 async function getOrCreateUser(userId) {
   return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM users WHERE line_id = ?', [userId], (err, row) => {
+    const sqliteDb = db.getDb();
+    sqliteDb.get('SELECT * FROM users WHERE line_user_id = ?', [userId], (err, row) => {
       if (err) {
         reject(err);
       } else if (!row) {
-        db.run('INSERT INTO users (line_id) VALUES (?)', [userId], (err) => {
+        sqliteDb.run('INSERT INTO users (line_user_id) VALUES (?)', [userId], (err) => {
           if (err) reject(err);
           else resolve();
         });
@@ -479,7 +480,8 @@ async function handleDefaultMessage(event) {
 // データベースヘルパー関数
 function getMenuItems() {
   return new Promise((resolve, reject) => {
-    db.all('SELECT * FROM menu_items WHERE available = 1', [], (err, rows) => {
+    const sqliteDb = db.getDb();
+    sqliteDb.all('SELECT * FROM menu_items WHERE is_available = 1', [], (err, rows) => {
       if (err) reject(err);
       else resolve(rows);
     });
@@ -488,7 +490,8 @@ function getMenuItems() {
 
 function getMenuItemById(id) {
   return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM menu_items WHERE id = ?', [id], (err, row) => {
+    const sqliteDb = db.getDb();
+    sqliteDb.get('SELECT * FROM menu_items WHERE id = ?', [id], (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
@@ -497,8 +500,9 @@ function getMenuItemById(id) {
 
 function createReservation(userId, date, time, menuId) {
   return new Promise((resolve, reject) => {
-    db.run(
-      'INSERT INTO reservations (user_id, reservation_date, reservation_time, menu_id, status) VALUES ((SELECT id FROM users WHERE line_id = ?), ?, ?, ?, ?)',
+    const sqliteDb = db.getDb();
+    sqliteDb.run(
+      'INSERT INTO reservations (user_id, reservation_date, reservation_time, menu_items, status) VALUES ((SELECT id FROM users WHERE line_user_id = ?), ?, ?, ?, ?)',
       [userId, date, time, menuId, 'confirmed'],
       function(err) {
         if (err) reject(err);
@@ -510,11 +514,12 @@ function createReservation(userId, date, time, menuId) {
 
 function getUserReservations(userId) {
   return new Promise((resolve, reject) => {
-    db.all(`
+    const sqliteDb = db.getDb();
+    sqliteDb.all(`
       SELECT r.*, m.name as menu_name, m.price as menu_price 
       FROM reservations r 
-      JOIN menu_items m ON r.menu_id = m.id 
-      WHERE r.user_id = (SELECT id FROM users WHERE line_id = ?) 
+      JOIN menu_items m ON r.menu_items = m.id 
+      WHERE r.user_id = (SELECT id FROM users WHERE line_user_id = ?) 
       ORDER BY r.reservation_date DESC, r.reservation_time DESC
     `, [userId], (err, rows) => {
       if (err) reject(err);
@@ -525,11 +530,12 @@ function getUserReservations(userId) {
 
 function getUserActiveReservations(userId) {
   return new Promise((resolve, reject) => {
-    db.all(`
+    const sqliteDb = db.getDb();
+    sqliteDb.all(`
       SELECT r.*, m.name as menu_name, m.price as menu_price 
       FROM reservations r 
-      JOIN menu_items m ON r.menu_id = m.id 
-      WHERE r.user_id = (SELECT id FROM users WHERE line_id = ?) 
+      JOIN menu_items m ON r.menu_items = m.id 
+      WHERE r.user_id = (SELECT id FROM users WHERE line_user_id = ?) 
       AND r.status = 'confirmed' 
       AND datetime(r.reservation_date || ' ' || r.reservation_time) > datetime('now', 'localtime')
       ORDER BY r.reservation_date, r.reservation_time

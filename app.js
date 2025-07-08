@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const morgan = require('morgan');
-const { initializeDatabase } = require('./database');
+const database = require('./database');
 const config = require('./config');
 
 const app = express();
@@ -57,7 +57,7 @@ app.use((req, res) => {
 const PORT = process.env.PORT || config.port || 3000;
 
 // データベース初期化後にサーバー起動
-initializeDatabase()
+database.initialize()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
