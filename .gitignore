@@ -59,6 +59,10 @@ jspm_packages/
 ehthumbs.db
 Thumbs.db
 
+# Local backup folder
+backup/
+backups/
+
 # IDE files
 .vscode/
 .idea/
@@ -69,3 +73,15 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp 
+
+# Backup files
+*.backup
+*.old
+*.bak
+*~
+*.tmp
+
+# Editor backup files
+.#*
+\#*\#
+*\# 
