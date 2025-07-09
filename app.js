@@ -19,6 +19,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ルーティング設定
 app.use('/api/line', require('./routes/line'));
+app.use('/api/debug', require('./routes/webhook-debug'));
 app.use('/api/reservations', require('./routes/reservations'));
 
 // ビューエンジン設定
