@@ -56,17 +56,10 @@ app.use((req, res) => {
 // サーバー起動
 const PORT = process.env.PORT || config.port || 3000;
 
-// データベース初期化後にサーバー起動
-database.initialize()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
-  })
-  .catch(err => {
-    console.error('Database initialization failed:', err);
-    process.exit(1);
-  });
+// サーバー起動（データベースは既にモジュール読み込み時に初期化済み）
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
 
 module.exports = app; 
