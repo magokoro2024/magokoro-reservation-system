@@ -35,7 +35,7 @@ router.get('/webhook', (req, res) => {
     message: 'LINE Webhook endpoint is working!',
     method: 'GET',
     timestamp: new Date().toISOString(),
-    deployVersion: '2025-07-09-v1.9.0',
+    deployVersion: '2025-07-09-v1.9.5-final',
     note: 'This endpoint is for verification purposes. Actual webhook events should be sent via POST.'
   });
 });
@@ -86,8 +86,8 @@ async function handleEvent(event) {
 async function handleMessage(event) {
   const message = event.message.text;
   const userId = event.source.userId;
-  
-  console.log(`メッセージ受信: "${message}" from ${userId}`);
+
+  console.log(メッセージ受信: "" from );
 
   if (message === '予約' || message === '予約する') {
     console.log('予約処理開始');
@@ -101,23 +101,30 @@ async function handleMessage(event) {
   } else if (message === 'ヘルプ') {
     console.log('ヘルプ表示処理開始');
     return handleHelp(event);
+  } else if (message === '営業時間') {
+    console.log('営業時間表示処理開始');
+    return handleBusinessHours(event);
+  } else if (message === '店舗情報') {
+    console.log('店舗情報表示処理開始');
+    return handleStoreInfo(event);
   }
 
   console.log('デフォルト応答処理');
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: ' まごころおにぎり予約システム\n\n【コマンド】\n「予約」新しい予約\n「確認」予約確認\n「メニュー」メニュー表示\n「ヘルプ」使用方法\n\n営業時間：平日11:00-14:30（土日祝は休業）'
+    text: ' まごころおにぎり予約システム\n\n【コマンド】\n「予約」新しい予約\n「確認」予約確認\n「メニュー」メニュー表示\n「ヘルプ」使用方法\n「営業時間」営業時間確認\n「店舗情報」店舗情報\n\n営業時間：平日11:00-14:30（土日は休業）'
   });
 }
 
-// 基本的な応答関数
+// 予約開始処理
 async function handleReservationStart(event) {
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: ' ご予約ありがとうございます！\n\n現在、予約システムを準備中です。\n詳細な予約機能は近日中に実装予定です。\n\n営業時間：平日11:00-14:30\n土日祝は休業日です'
+    text: ' ご予約ありがとうございます！\n\n現在、予約システムを準備中です。\n詳細な予約機能は近日中に実装予定です。\n\n営業時間：平日11:00-14:30\n土日は休業日です'
   });
 }
 
+// 予約確認処理
 async function handleReservationCheck(event) {
   return client.replyMessage(event.replyToken, {
     type: 'text',
@@ -125,21 +132,39 @@ async function handleReservationCheck(event) {
   });
 }
 
+// メニュー表示処理
 async function handleMenuRequest(event) {
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: ' メニュー\n\n【人気おにぎり】\n鮭 - 200円\nツナマヨ - 180円\n昆布 - 150円\n梅 - 150円\n焼きたらこ - 220円\n\n価格は税込みです\n営業時間：平日11:00-14:30'
+    text: ' メニュー\n\n【おにぎり】\n塩 - 90円\nツナマヨ - 100円\n昆布 - 110円\nとりそぼろ - 110円\n梅 - 120円\n鮭 - 120円\nたらこ - 130円\n高菜 - 130円\n\n価格は税込みです\n売り切れ次第終了\n\n営業時間：平日11:00-14:30'
   });
 }
 
+// ヘルプ表示処理
 async function handleHelp(event) {
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: ' まごころおにぎり予約システム\n\n【使用方法】\n「予約」新しい予約\n「確認」予約確認\n「メニュー」メニュー表示\n「ヘルプ」この説明\n\n【営業時間】\n平日 11:00-14:30\n（土日祝は休業）\n\n【店舗情報】\n〒347-0105 埼玉県加須市久下1-1-15'
+    text: ' まごころおにぎり予約システム\n\n【使用方法】\n「予約」新しい予約\n「確認」予約確認\n「メニュー」メニュー表示\n「ヘルプ」この説明\n「営業時間」営業時間確認\n「店舗情報」店舗情報\n\n【営業時間】\n平日 11:00-14:30\n（土日は休業）\n\n【店舗情報】\n〒347-0063\n埼玉県加須市久下1-1-15'
   });
 }
 
-// 友達追加イベントの処理
+// 営業時間表示処理
+async function handleBusinessHours(event) {
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: ' 営業時間\n\n【営業日】\n平日（月火水木金）\n\n【営業時間】\n11:00 - 14:30\n\n【休業日】\n土日\n\n 売り切れ次第終了となります\n事前予約をおすすめします！'
+  });
+}
+
+// 店舗情報表示処理
+async function handleStoreInfo(event) {
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: ' 店舗情報\n\n【まごころおにぎり】\n〒347-0063\n埼玉県加須市久下1-1-15\n\n 電話番号\n0480-53-8424\n\n 営業時間\n平日 11:00-14:30\n（土日は休業）\n\n事前予約承ります'
+  });
+}
+
+// 友達追加イベント処理
 async function handleFollow(event) {
   console.log('=== Follow event received ===');
   console.log('User ID:', event.source.userId);
@@ -147,7 +172,7 @@ async function handleFollow(event) {
   
   const welcomeMessage = {
     type: 'text',
-    text: ` まごころおにぎり予約システムへようこそ！\n\n【ご利用方法】\n下記のコマンドをメッセージで送信してください：\n\n「予約」新しい予約\n「確認」予約確認\n「メニュー」メニュー表示\n「ヘルプ」使用方法\n\n【営業時間】\n平日 11:00-14:30\n（土日祝は休業）\n\n予約をするには「予約」とメッセージしてください！`
+    text:  まごころおにぎり予約システムへようこそ！\n\n【ご利用方法】\n下記のコマンドをメッセージで送信してください：\n\n「予約」新しい予約\n「確認」予約確認\n「メニュー」メニュー表示\n「ヘルプ」使用方法\n「営業時間」営業時間確認\n「店舗情報」店舗情報\n\n【営業時間】\n平日 11:00-14:30\n（土日は休業）\n\n予約をするには「予約」とメッセージしてください！
   };
   
   try {
@@ -179,11 +204,11 @@ router.get('/check-config', (req, res) => {
   const channelSecret = process.env.LINE_CHANNEL_SECRET;
   
   const configCheck = {
-    channelAccessToken: channelAccessToken ? '設定済み' : ' 未設定',
-    channelSecret: channelSecret ? '設定済み' : ' 未設定',
+    channelAccessToken: channelAccessToken ? '設定済み' : '未設定',
+    channelSecret: channelSecret ? '設定済み' : '未設定',
     port: process.env.PORT || 3000,
     nodeEnv: process.env.NODE_ENV || 'development',
-    webhookUrl: `${req.protocol}://${req.get('host')}/api/line/webhook`,
+    webhookUrl: ${req.protocol}:///api/line/webhook,
     timestamp: new Date().toISOString()
   };
   
