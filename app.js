@@ -7,6 +7,19 @@ const config = require('./config');
 
 const app = express();
 
+// CORS設定
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // ログ設定
 app.use(morgan('combined'));
 
@@ -14,7 +27,7 @@ app.use(morgan('combined'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// 静的ファイルの提供
+// 静的ファイルの配信
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ルーティング設定
@@ -25,7 +38,7 @@ app.use('/api/reservations', require('./routes/reservations'));
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'html');
 
-// HTMLファイルの提供
+// HTMLファイルの配信
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'index.html'));
 });
@@ -48,18 +61,13 @@ app.use((err, req, res, next) => {
   res.status(500).send('Something broke!');
 });
 
-// 404エラーハンドリング
-app.use((req, res) => {
-  res.status(404).send('Page not found');
-});
-
-// サーバー起動
-const PORT = process.env.PORT || config.port || 3000;
-
-// サーバー起動（データベースは既にモジュール読み込み時に初期化済み）
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // データベース接続テスト
+  database.testConnection();
 });
 
 module.exports = app; 
