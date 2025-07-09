@@ -17,7 +17,93 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
+// 環境変数チェック
+console.log('LINE Bot設定確認:');
+console.log('- Channel Access Token:', process.env.LINE_CHANNEL_ACCESS_TOKEN ? '設定済み' : '未設定');
+console.log('- Channel Secret:', process.env.LINE_CHANNEL_SECRET ? '設定済み' : '未設定');
+
 const client = new line.Client(config);
+
+// リッチメニューの設定
+async function setupRichMenu() {
+  try {
+    // 既存のリッチメニューを削除
+    const existingMenus = await client.getRichMenuList();
+    for (const menu of existingMenus) {
+      await client.deleteRichMenu(menu.richMenuId);
+    }
+
+    // 新しいリッチメニューを作成
+    const richMenu = {
+      size: {
+        width: 2500,
+        height: 1686
+      },
+      selected: false,
+      name: "まごころおにぎり予約メニュー",
+      chatBarText: "メニュー",
+      areas: [
+        {
+          bounds: {
+            x: 0,
+            y: 0,
+            width: 1250,
+            height: 843
+          },
+          action: {
+            type: "message",
+            text: "予約"
+          }
+        },
+        {
+          bounds: {
+            x: 1250,
+            y: 0,
+            width: 1250,
+            height: 843
+          },
+          action: {
+            type: "message",
+            text: "確認"
+          }
+        },
+        {
+          bounds: {
+            x: 0,
+            y: 843,
+            width: 1250,
+            height: 843
+          },
+          action: {
+            type: "message",
+            text: "メニュー"
+          }
+        },
+        {
+          bounds: {
+            x: 1250,
+            y: 843,
+            width: 1250,
+            height: 843
+          },
+          action: {
+            type: "message",
+            text: "ヘルプ"
+          }
+        }
+      ]
+    };
+
+    const richMenuId = await client.createRichMenu(richMenu);
+    
+    // リッチメニューを全ユーザーに設定
+    await client.setDefaultRichMenu(richMenuId);
+    
+    console.log('リッチメニューが設定されました:', richMenuId);
+  } catch (error) {
+    console.error('リッチメニュー設定エラー:', error);
+  }
+}
 
 // 営業日チェック（平日のみ）
 function isBusinessDay(date) {
@@ -310,14 +396,21 @@ async function handleReservationCheck(event) {
 // メッセージイベントの処理
 async function handleMessage(event) {
   const message = event.message.text;
+  const userId = event.source.userId;
+  
+  console.log(`メッセージ受信: "${message}" from ${userId}`);
 
   if (message === '予約') {
+    console.log('予約処理開始');
     return handleReservationStart(event);
   } else if (message === '確認') {
+    console.log('予約確認処理開始');
     return handleReservationCheck(event);
   } else if (message === 'メニュー') {
+    console.log('メニュー表示処理開始');
     return showOnigiriSelection(event, null, null);
   } else if (message === 'ヘルプ') {
+    console.log('ヘルプ表示処理開始');
     const helpMessage = {
       type: 'text',
       text: '🍙 まごころおにぎり予約システム\n\n【使用方法】\n・「予約」→新しい予約\n・「確認」→予約確認\n・「メニュー」→メニュー表示\n・「ヘルプ」→この説明\n\n【営業時間】\n平日 11:00-14:30\n（土日祝は休業）\n\n【予約枠】\n30分刻み、各枠最大10個まで'
@@ -325,6 +418,7 @@ async function handleMessage(event) {
     return client.replyMessage(event.replyToken, helpMessage);
   }
 
+  console.log('デフォルト応答処理');
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: '🍙 まごころおにぎり予約システム\n\n【コマンド】\n・「予約」→新しい予約\n・「確認」→予約確認\n・「メニュー」→メニュー表示\n・「ヘルプ」→使用方法'
@@ -380,6 +474,42 @@ router.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
+// リッチメニュー設定エンドポイント
+router.post('/setup-richmenu', async (req, res) => {
+  try {
+    await setupRichMenu();
+    res.json({ status: 'success', message: 'リッチメニューが設定されました' });
+  } catch (error) {
+    console.error('リッチメニュー設定エラー:', error);
+    res.status(500).json({ error: 'リッチメニュー設定に失敗しました' });
+  }
+});
+
+// 環境変数チェックエンドポイント
+router.get('/check-config', (req, res) => {
+  const configCheck = {
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ? '設定済み' : '未設定',
+    channelSecret: process.env.LINE_CHANNEL_SECRET ? '設定済み' : '未設定',
+    port: process.env.PORT || 3000,
+    nodeEnv: process.env.NODE_ENV || 'development'
+  };
+  
+  res.json({
+    status: 'success',
+    config: configCheck,
+    webhookUrl: `${req.protocol}://${req.get('host')}/api/line/webhook`
+  });
+});
+
+// 友達追加イベントの処理
+async function handleFollow(event) {
+  const welcomeMessage = {
+    type: 'text',
+    text: `🍙 まごころおにぎり予約システムへようこそ！\n\n【ご利用方法】\n下記のコマンドをメッセージで送信してください：\n\n📅「予約」→新しい予約\n📋「確認」→予約確認\n🍙「メニュー」→メニュー表示\n❓「ヘルプ」→使用方法\n\n【営業時間】\n平日 11:00-14:30\n（土日祝は休業）\n\n予約をするには「予約」とメッセージしてください！`
+  };
+  return client.replyMessage(event.replyToken, welcomeMessage);
+}
+
 // イベント処理
 async function handleEvent(event) {
   console.log('Event received:', event);
@@ -390,6 +520,10 @@ async function handleEvent(event) {
 
   if (event.type === 'postback') {
     return handlePostback(event);
+  }
+
+  if (event.type === 'follow') {
+    return handleFollow(event);
   }
 
   return Promise.resolve(null);
