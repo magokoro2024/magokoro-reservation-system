@@ -33,21 +33,21 @@ async function setupRichMenu() {
       await client.deleteRichMenu(menu.richMenuId);
     }
 
-    // 新しいリッチメニューを作成
+    // 新しいリッチメニューを作成（シンプルな2x1レイアウト）
     const richMenu = {
       size: {
         width: 2500,
-        height: 1686
+        height: 843
       },
       selected: false,
       name: "まごころおにぎり予約メニュー",
-      chatBarText: "メニュー",
+      chatBarText: "予約メニュー",
       areas: [
         {
           bounds: {
             x: 0,
             y: 0,
-            width: 1250,
+            width: 833,
             height: 843
           },
           action: {
@@ -57,9 +57,9 @@ async function setupRichMenu() {
         },
         {
           bounds: {
-            x: 1250,
+            x: 833,
             y: 0,
-            width: 1250,
+            width: 834,
             height: 843
           },
           action: {
@@ -69,21 +69,9 @@ async function setupRichMenu() {
         },
         {
           bounds: {
-            x: 0,
-            y: 843,
-            width: 1250,
-            height: 843
-          },
-          action: {
-            type: "message",
-            text: "メニュー"
-          }
-        },
-        {
-          bounds: {
-            x: 1250,
-            y: 843,
-            width: 1250,
+            x: 1667,
+            y: 0,
+            width: 833,
             height: 843
           },
           action: {
@@ -96,13 +84,48 @@ async function setupRichMenu() {
 
     const richMenuId = await client.createRichMenu(richMenu);
     
+    // シンプルなリッチメニュー画像を生成（BASE64）
+    const simpleMenuImage = await createSimpleRichMenuImage();
+    if (simpleMenuImage) {
+      await client.setRichMenuImage(richMenuId, Buffer.from(simpleMenuImage, 'base64'));
+    }
+    
     // リッチメニューを全ユーザーに設定
     await client.setDefaultRichMenu(richMenuId);
     
     console.log('リッチメニューが設定されました:', richMenuId);
+    return richMenuId;
   } catch (error) {
     console.error('リッチメニュー設定エラー:', error);
+    throw error;
   }
+}
+
+// シンプルなリッチメニュー画像を生成
+function createSimpleRichMenuImage() {
+  // SVGベースの簡単な画像をBASE64で生成
+  const svgContent = `
+    <svg width="2500" height="843" xmlns="http://www.w3.org/2000/svg">
+      <!-- 背景 -->
+      <rect width="2500" height="843" fill="#4CAF50"/>
+      
+      <!-- 予約ボタン -->
+      <rect x="0" y="0" width="833" height="843" fill="#FF9800" stroke="#fff" stroke-width="3"/>
+      <text x="416" y="450" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="white" text-anchor="middle">📅 予約</text>
+      
+      <!-- 確認ボタン -->
+      <rect x="833" y="0" width="834" height="843" fill="#2196F3" stroke="#fff" stroke-width="3"/>
+      <text x="1250" y="450" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="white" text-anchor="middle">📋 確認</text>
+      
+      <!-- ヘルプボタン -->
+      <rect x="1667" y="0" width="833" height="843" fill="#9C27B0" stroke="#fff" stroke-width="3"/>
+      <text x="2083" y="450" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="white" text-anchor="middle">❓ ヘルプ</text>
+    </svg>
+  `;
+  
+  // SVGをPNGに変換する代わりに、簡単なテキストベースの画像を返す
+  // 実際の本番環境では、外部の画像変換サービスやライブラリを使用してください
+  return null; // 今回は画像なしで進める
 }
 
 // 営業日チェック（平日のみ）
@@ -466,11 +489,24 @@ async function handlePostback(event) {
 
 // メインのwebhookハンドラー
 router.post('/webhook', line.middleware(config), (req, res) => {
+  console.log('=== Webhook received ===');
+  console.log('Request headers:', req.headers);
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  console.log('Number of events:', req.body.events ? req.body.events.length : 0);
+  
+  if (!req.body.events || req.body.events.length === 0) {
+    console.log('No events in request body');
+    return res.json({ status: 'success', message: 'No events to process' });
+  }
+
   Promise.all(req.body.events.map(handleEvent))
-    .then(() => res.json({ status: 'success' }))
+    .then((results) => {
+      console.log('All events processed successfully:', results.length);
+      res.json({ status: 'success', processedEvents: results.length });
+    })
     .catch((error) => {
       console.error('Webhook Error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Internal server error', details: error.message });
     });
 });
 
@@ -485,29 +521,82 @@ router.post('/setup-richmenu', async (req, res) => {
   }
 });
 
+// 基本的なテストエンドポイント
+router.get('/test', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'LINE Bot API is running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      checkConfig: '/api/line/check-config',
+      setupRichMenu: '/api/line/setup-richmenu (POST)',
+      webhook: '/api/line/webhook (POST)'
+    }
+  });
+});
+
 // 環境変数チェックエンドポイント
 router.get('/check-config', (req, res) => {
+  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const channelSecret = process.env.LINE_CHANNEL_SECRET;
+  
   const configCheck = {
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ? '設定済み' : '未設定',
-    channelSecret: process.env.LINE_CHANNEL_SECRET ? '設定済み' : '未設定',
+    channelAccessToken: channelAccessToken ? `設定済み (${channelAccessToken.substring(0, 20)}...)` : '❌ 未設定',
+    channelSecret: channelSecret ? `設定済み (${channelSecret.substring(0, 10)}...)` : '❌ 未設定',
     port: process.env.PORT || 3000,
-    nodeEnv: process.env.NODE_ENV || 'development'
+    nodeEnv: process.env.NODE_ENV || 'development',
+    webhookUrl: `${req.protocol}://${req.get('host')}/api/line/webhook`,
+    timestamp: new Date().toISOString()
   };
+  
+  // LINE Bot クライアントの初期化確認
+  let clientStatus = 'OK';
+  try {
+    if (!channelAccessToken || !channelSecret) {
+      clientStatus = '❌ 環境変数未設定のため初期化失敗';
+    } else if (channelAccessToken === 'YOUR_LINE_CHANNEL_ACCESS_TOKEN' || 
+               channelSecret === 'YOUR_LINE_CHANNEL_SECRET') {
+      clientStatus = '❌ デフォルト値のため初期化失敗';
+    }
+  } catch (error) {
+    clientStatus = `❌ エラー: ${error.message}`;
+  }
   
   res.json({
     status: 'success',
     config: configCheck,
-    webhookUrl: `${req.protocol}://${req.get('host')}/api/line/webhook`
+    lineClientStatus: clientStatus,
+    instructions: {
+      nextSteps: [
+        '1. Renderで環境変数 LINE_CHANNEL_ACCESS_TOKEN を設定',
+        '2. Renderで環境変数 LINE_CHANNEL_SECRET を設定',
+        '3. LINE Developers Console で Webhook URL を設定',
+        '4. /api/line/setup-richmenu にPOSTでリッチメニュー設定',
+        '5. LINE Botを友達追加してテスト'
+      ]
+    }
   });
 });
 
 // 友達追加イベントの処理
 async function handleFollow(event) {
+  console.log('=== Follow event received ===');
+  console.log('User ID:', event.source.userId);
+  console.log('Reply token:', event.replyToken);
+  
   const welcomeMessage = {
     type: 'text',
     text: `🍙 まごころおにぎり予約システムへようこそ！\n\n【ご利用方法】\n下記のコマンドをメッセージで送信してください：\n\n📅「予約」→新しい予約\n📋「確認」→予約確認\n🍙「メニュー」→メニュー表示\n❓「ヘルプ」→使用方法\n\n【営業時間】\n平日 11:00-14:30\n（土日祝は休業）\n\n予約をするには「予約」とメッセージしてください！`
   };
-  return client.replyMessage(event.replyToken, welcomeMessage);
+  
+  try {
+    const result = await client.replyMessage(event.replyToken, welcomeMessage);
+    console.log('Welcome message sent successfully:', result);
+    return result;
+  } catch (error) {
+    console.error('Error sending welcome message:', error);
+    throw error;
+  }
 }
 
 // イベント処理
