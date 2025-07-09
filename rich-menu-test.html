@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リッチメニュー作成テスト</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .button {
+            background: #0066cc;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        .button:hover {
+            background: #0052a3;
+        }
+        .button.danger {
+            background: #dc3545;
+        }
+        .button.danger:hover {
+            background: #c82333;
+        }
+        .button.success {
+            background: #28a745;
+        }
+        .button.success:hover {
+            background: #218838;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .file-input {
+            margin: 10px 0;
+        }
+        .menu-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 2px;
+            max-width: 300px;
+            margin: 20px auto;
+            background: #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .menu-item {
+            background: #f0f0f0;
+            padding: 20px;
+            text-align: center;
+            font-size: 14px;
+            border: 1px solid #ddd;
+        }
+        .menu-item:nth-child(1) { background: #e3f2fd; }
+        .menu-item:nth-child(2) { background: #f3e5f5; }
+        .menu-item:nth-child(3) { background: #e8f5e8; }
+        .menu-item:nth-child(4) { background: #fff3e0; }
+        .menu-item:nth-child(5) { background: #fce4ec; }
+        .menu-item:nth-child(6) { background: #f1f8e9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 リッチメニュー作成テスト</h1>
+        
+        <div class="menu-layout">
+            <div class="menu-item">予約</div>
+            <div class="menu-item">メニュー</div>
+            <div class="menu-item">予約確認</div>
+            <div class="menu-item">営業時間</div>
+            <div class="menu-item">店舗情報</div>
+            <div class="menu-item">ヘルプ</div>
+        </div>
+        
+        <div style="text-align: center; margin-bottom: 30px;">
+            <p><strong>リッチメニューサイズ:</strong> 2500×1686px (6ボタン)</p>
+            <p><strong>API URL:</strong> https://magokoro-onigiri.onrender.com/api/line</p>
+        </div>
+        
+        <div>
+            <button class="button" onclick="checkRichMenus()">📋 現在のリッチメニュー確認</button>
+            <button class="button danger" onclick="deleteAllRichMenus()">🗑️ 全リッチメニュー削除</button>
+            <button class="button success" onclick="createRichMenu()">✨ リッチメニュー作成</button>
+        </div>
+        
+        <div>
+            <h3>📂 画像付きリッチメニュー作成</h3>
+            <div class="file-input">
+                <input type="file" id="imageFile" accept="image/*" />
+                <button class="button success" onclick="createRichMenuWithImage()">🎨 画像付きで作成</button>
+            </div>
+        </div>
+        
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://magokoro-onigiri.onrender.com/api/line';
+        
+        function showResult(message) {
+            const result = document.getElementById('result');
+            result.textContent = message;
+            result.style.display = 'block';
+        }
+        
+        async function checkRichMenus() {
+            try {
+                showResult('リッチメニュー確認中...');
+                const response = await fetch(`${API_BASE}/rich-menu/list`);
+                const data = await response.json();
+                showResult(`現在のリッチメニュー一覧:\n${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`リッチメニュー確認エラー: ${error.message}`);
+            }
+        }
+        
+        async function deleteAllRichMenus() {
+            try {
+                showResult('リッチメニュー削除中...');
+                const response = await fetch(`${API_BASE}/rich-menu/delete-all`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                showResult(`リッチメニュー削除結果:\n${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`リッチメニュー削除エラー: ${error.message}`);
+            }
+        }
+        
+        async function createRichMenu() {
+            try {
+                showResult('リッチメニュー作成中...');
+                const response = await fetch(`${API_BASE}/rich-menu/create`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                showResult(`リッチメニュー作成結果:\n${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`リッチメニュー作成エラー: ${error.message}`);
+            }
+        }
+        
+        async function createRichMenuWithImage() {
+            try {
+                const fileInput = document.getElementById('imageFile');
+                const file = fileInput.files[0];
+                
+                if (!file) {
+                    showResult('画像ファイルを選択してください');
+                    return;
+                }
+                
+                showResult('画像付きリッチメニュー作成中...');
+                
+                const formData = new FormData();
+                formData.append('image', file);
+                
+                const response = await fetch(`${API_BASE}/rich-menu/create-with-image`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                showResult(`画像付きリッチメニュー作成結果:\n${JSON.stringify(data, null, 2)}`);
+            } catch (error) {
+                showResult(`画像付きリッチメニュー作成エラー: ${error.message}`);
+            }
+        }
+        
+        // ページ読み込み時に現在の状態を確認
+        window.addEventListener('load', checkRichMenus);
+    </script>
+</body>
+</html> 
